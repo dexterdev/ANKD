@@ -65,11 +65,20 @@ commented in the YAML with its reason.
   that resets at each ramp step. The ramp is capped by detected VRAM.
 * **Teacher** — SGD at 0.01, momentum 0.9, weight decay 5e-4, cosine over 100 epochs.
 
-Every run reports **train and test accuracy** each epoch for both networks. Train
-accuracy is measured on a clean (un-augmented) view of the training set, so the
-train/test gap reads as overfitting rather than augmentation strength. Set
-`teacher.eval_train_every: 0` to skip it, or `teacher.eval_train_samples: 0` to use the
-full training set instead of a 10k subsample.
+### What each run reports
+
+| | teacher | student |
+|---|---|---|
+| `run` | accuracy over the training pass — free, but on augmented inputs while the weights move | — |
+| `train` | clean-view pass (test transform over the training set); the `train`−`test` gap is overfitting | — none, by design |
+| `test` | real held-out set; selects the checkpoint | real held-out set; selects the checkpoint |
+
+The student has no train accuracy because it has no training set on real data — it
+learns from synthetic noise. Reporting one would just be a second test set under a
+misleading name.
+
+Teacher train accuracy costs an extra pass: `teacher.eval_train_every: 0` skips it,
+`teacher.eval_train_samples: 0` uses the full training set instead of a 10k subsample.
 
 ### Tuning knobs beyond the shared protocol
 

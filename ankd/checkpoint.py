@@ -13,8 +13,8 @@ import os
 import torch
 
 _CONTAINER_KEYS = ("model_state", "state_dict", "model", "net", "weights", "teacher")
-_META_KEYS = ("val_acc", "train_acc", "acc", "best_acc", "epoch", "epochs",
-              "temperature", "arch")
+_META_KEYS = ("val_acc", "test_acc", "train_acc", "run_acc", "acc", "best_acc",
+              "epoch", "epochs", "temperature", "arch")
 
 
 def _strip(prefix):

@@ -139,13 +139,14 @@ def train_teacher(teacher, data, cfg: TeacherCfg, runtime: Runtime):
     best_acc, started = 0.0, time.time()
     for epoch in range(cfg.epochs):
         teacher.train()
-        epoch_loss = 0.0
+        epoch_loss, correct, seen = 0.0, 0, 0
         for x, y in data.train_loader:
             x = runtime.to_input(x.to(device, non_blocking=True))
             y = y.to(device, non_blocking=True)
             opt.zero_grad(set_to_none=True)
             with autocast_ctx:
-                loss = criterion(teacher(x), y)
+                logits = teacher(x)
+                loss = criterion(logits, y)
             if needs_scaler:
                 scaler.scale(loss).backward()
                 if cfg.clip_grad:
@@ -159,8 +160,14 @@ def train_teacher(teacher, data, cfg: TeacherCfg, runtime: Runtime):
                     nn.utils.clip_grad_norm_(teacher.parameters(), cfg.clip_grad)
                 opt.step()
             epoch_loss += loss.item()
+            correct += (logits.detach().argmax(dim=1) == y).sum().item()
+            seen += y.size(0)
         sched.step()
 
+        # `run` is the training pass itself: free, but on augmented inputs while
+        # the weights still move. `train` is the clean-view pass, which is the
+        # one to compare against test -- that gap is overfitting.
+        run_acc = 100.0 * correct / max(seen, 1)
         test_acc = evaluate(teacher, device, data.test_loader)
         show_train = (cfg.eval_train_every
                       and (epoch + 1) % cfg.eval_train_every == 0)
@@ -168,12 +175,12 @@ def train_teacher(teacher, data, cfg: TeacherCfg, runtime: Runtime):
 
         if test_acc > best_acc:
             best_acc = test_acc
-            checkpoint.save(teacher, cfg.ckpt, val_acc=test_acc,
-                            train_acc=train_acc, epoch=epoch + 1)
+            checkpoint.save(teacher, cfg.ckpt, val_acc=test_acc, test_acc=test_acc,
+                            train_acc=train_acc, run_acc=run_acc, epoch=epoch + 1)
 
         train_part = f"train={train_acc:.2f}%  " if train_acc is not None else ""
-        print(f"[teacher] epoch {epoch + 1}/{cfg.epochs}  {train_part}"
-              f"test={test_acc:.2f}%  best={best_acc:.2f}%  "
+        print(f"[teacher] epoch {epoch + 1}/{cfg.epochs}  run={run_acc:.2f}%  "
+              f"{train_part}test={test_acc:.2f}%  best={best_acc:.2f}%  "
               f"loss={epoch_loss / len(data.train_loader):.4f}  "
               f"lr={sched.get_last_lr()[0]:.2e}  {_fmt(time.time() - started)}")
 

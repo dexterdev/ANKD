@@ -65,7 +65,9 @@ class CifarData:
 
         test_tf = T.Compose([T.ToTensor()])
         base = [T.RandomCrop(32, padding=4), T.RandomHorizontalFlip()]
-        extra = [T.RandAugment(num_ops=2, magnitude=9)] if cfg.randaug else []
+        extra = ([T.RandAugment(num_ops=cfg.randaug_num_ops,
+                                magnitude=cfg.randaug_magnitude)]
+                 if cfg.randaug else [])
         post = [T.RandomErasing(p=0.25)] if cfg.randaug else []
         train_tf = T.Compose(base + extra + [T.ToTensor()] + post)
 

@@ -91,12 +91,53 @@ def test_units():
     check("batch ramp caps at max_batch",
           [engine.batch_size_for(e, 512) for e in (0, 100, 200)] == [16, 512, 512])
 
+    # student LR schedule: the default must stay byte-identical to the protocol
+    from ankd.config import StudentCfg
+    default_fn = engine.student_lr_lambda(StudentCfg())
+    check("default student schedule is the shared protocol",
+          all(abs(default_fn(e) - engine.batch_aligned_lr(e)) < 1e-12 for e in range(260)))
+    cos_fn = engine.student_lr_lambda(
+        StudentCfg(schedule="cosine", warmup_epochs=5, epochs=200))
+    check("cosine schedule warms up then decays monotonically",
+          cos_fn(0) < cos_fn(4) and all(cos_fn(e) >= cos_fn(e + 1) - 1e-12
+                                        for e in range(5, 199)))
+    try:
+        engine.student_lr_lambda(StudentCfg(schedule="nope"))(0)
+        check("unknown schedule rejected", False)
+    except ValueError:
+        check("unknown schedule rejected", True)
+
     noise = build_noise(NoiseCfg(num_samples=150, per_call=100))
     check("build_noise returns exactly num_samples", noise.shape == (150, 3, 32, 32))
     check("noise stays in [0, 1]", 0.0 <= noise.min() and noise.max() <= 1.0)
 
     ds = SyntheticDataset(noise, AugmentCfg(n_random_ops=4))
     check("augmented sample shape", ds[0].shape == (3, 32, 32))
+
+
+def test_noise_regeneration():
+    """A redraw must reach persistent workers, which hold their own pickled copy
+    of the dataset -- mutating it in the parent alone is a silent no-op."""
+    print("noise regeneration:")
+    from torch.utils.data import DataLoader
+    ds = SyntheticDataset(torch.zeros(64, 3, 32, 32),
+                          AugmentCfg(use_geo=False, n_random_ops=0))
+    kw = dict(batch_size=16, shuffle=False, num_workers=2,
+              persistent_workers=True, prefetch_factor=2, drop_last=True)
+    cache = {}
+
+    def loader():
+        if "l" not in cache:
+            cache["l"] = DataLoader(ds, **kw)
+        return cache["l"]
+
+    next(iter(loader()))
+    ds.imgs = torch.ones(64, 3, 32, 32)
+    check("mutating alone leaves workers stale (why the cache is cleared)",
+          float(next(iter(loader())).mean()) == 0.0)
+    cache.clear()
+    check("clearing the loader cache delivers the new images",
+          float(next(iter(loader())).mean()) == 1.0)
 
 
 def test_checkpoint_roundtrip(tmp):
@@ -184,6 +225,7 @@ if __name__ == "__main__":
     try:
         test_units()
         test_config_overrides()
+        test_noise_regeneration()
         test_checkpoint_roundtrip(tmp)
         test_configs_end_to_end(tmp)
         print("\nALL SMOKE TESTS PASSED")

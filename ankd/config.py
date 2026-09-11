@@ -33,6 +33,8 @@ class DataCfg:
     teacher_batch: int = 64
     eval_batch: int = 256
     randaug: bool = False           # teacher-only augmentation; student sees noise
+    randaug_num_ops: int = 2        # only used when randaug is true
+    randaug_magnitude: int = 9      # lower this for short teacher runs
 
 
 @dataclass
@@ -62,6 +64,7 @@ class NoiseCfg:
     per_call: int = 100
     families: List[str] = field(default_factory=lambda: [
         "smooth_gradient", "perlin", "uniform", "gabor", "checkerboard"])
+    regenerate_every: int = 0       # 0 = one fixed set; N = redraw every N epochs
 
 
 @dataclass
@@ -78,6 +81,8 @@ class StudentCfg:
     momentum: float = 0.9
     weight_decay: float = 5e-4
     temperature: float = 20.0
+    warmup_epochs: int = 0          # helps AdamW on transformers; 0 = off
+    schedule: str = "ramp_aligned"  # "ramp_aligned" (shared protocol) | "cosine"
     ckpt_best: str = "checkpoints/student_best.pt"
     ckpt_last: str = "checkpoints/student_last.pt"
     eval_train_every: int = 1

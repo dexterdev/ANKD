@@ -71,6 +71,18 @@ train/test gap reads as overfitting rather than augmentation strength. Set
 `teacher.eval_train_every: 0` to skip it, or `teacher.eval_train_samples: 0` to use the
 full training set instead of a 10k subsample.
 
+### Tuning knobs beyond the shared protocol
+
+All default to the shared protocol, so only configs that set them are affected.
+
+| option | default | what it does |
+|---|---|---|
+| `runtime.max_batch` | auto (VRAM) | caps the student batch ramp. The uncapped ramp puts 67% of all optimizer steps in the first 25 epochs and 1% in the last 50; capping redistributes them. |
+| `student.schedule` | `ramp_aligned` | `cosine` decays once across the run instead of restarting at full LR at each ramp step — better for an AdamW/transformer student. |
+| `student.warmup_epochs` | 0 | linear warmup, folded into whichever schedule is selected. |
+| `noise.regenerate_every` | 0 | redraw the synthetic set every N epochs instead of reusing one fixed set. |
+| `data.randaug_num_ops` / `randaug_magnitude` | 2 / 9 | RandAugment strength; lower the magnitude for short teacher runs, where full strength underfits. |
+
 ### Where ViT-8 deviates, and why
 
 A from-scratch ViT does not converge under the shared teacher recipe. Its **teacher**

@@ -88,7 +88,10 @@ def main(argv=None) -> int:
     engine.temperature_report(teacher, dataset, runtime.device,
                               cfg.student.temperature, data.num_classes)
 
-    _, best = engine.train_student(teacher, student, dataset, data, cfg.student, runtime)
+    _, best = engine.train_student(
+        teacher, student, dataset, data, cfg.student, runtime,
+        regenerate=(lambda: build_noise(cfg.noise)) if cfg.noise.regenerate_every else None,
+        regenerate_every=cfg.noise.regenerate_every)
 
     _rule("Summary")
     print(f"{cfg.name}")

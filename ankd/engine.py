@@ -46,6 +46,33 @@ def batch_aligned_lr(epoch: int) -> float:
     return (end + (start - end) * cos_factor) / 0.01
 
 
+def student_lr_lambda(cfg: StudentCfg):
+    """LambdaLR multiplier for the student.
+
+    "ramp_aligned" is the shared protocol: cosine within each batch-size phase,
+    restarting at every ramp step. "cosine" decays once across the whole run,
+    which suits an AdamW/transformer student -- the restarts otherwise throw it
+    back to full learning rate five times late in training.
+    """
+    warmup = max(cfg.warmup_epochs, 0)
+
+    def lambda_fn(epoch: int) -> float:
+        if warmup and epoch < warmup:
+            scale = (epoch + 1) / warmup
+        else:
+            scale = 1.0
+        if cfg.schedule == "ramp_aligned":
+            return batch_aligned_lr(epoch) * scale
+        if cfg.schedule == "cosine":
+            span = max(cfg.epochs - warmup, 1)
+            progress = max(epoch - warmup, 0) / span
+            return (0.001 + 0.999 * 0.5 * (1 + math.cos(math.pi * progress))) * scale
+        raise ValueError(f"unknown student.schedule {cfg.schedule!r}; "
+                         f"expected 'ramp_aligned' or 'cosine'")
+
+    return lambda_fn
+
+
 def kd_loss(x, student, teacher_logits, temperature):
     """Temperature-scaled KL between student and frozen teacher, scaled by T^2."""
     log_prob = F.log_softmax(student(x) / temperature, dim=-1)
@@ -158,7 +185,8 @@ def train_teacher(teacher, data, cfg: TeacherCfg, runtime: Runtime):
 # --------------------------------------------------------------------------- #
 # student
 # --------------------------------------------------------------------------- #
-def train_student(teacher, student, dataset, data, cfg: StudentCfg, runtime: Runtime):
+def train_student(teacher, student, dataset, data, cfg: StudentCfg, runtime: Runtime,
+                  regenerate=None, regenerate_every: int = 0):
     """Distil the frozen teacher into the student on synthetic noise.
 
     The student never sees a real training image; the CIFAR loaders are used only
@@ -172,7 +200,7 @@ def train_student(teacher, student, dataset, data, cfg: StudentCfg, runtime: Run
 
     opt = make_optimizer(student.parameters(), cfg.optimizer, cfg.lr,
                          cfg.momentum, cfg.weight_decay, runtime)
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda=batch_aligned_lr)
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda=student_lr_lambda(cfg))
     autocast_ctx, needs_scaler = runtime.autocast()
     scaler = runtime.scaler(needs_scaler)
 
@@ -189,6 +217,15 @@ def train_student(teacher, student, dataset, data, cfg: StudentCfg, runtime: Run
 
     best_acc, started = 0.0, time.time()
     for epoch in range(cfg.epochs):
+        if regenerate and regenerate_every and epoch and epoch % regenerate_every == 0:
+            # Fresh noise widens what the teacher is queried on. The loader cache
+            # must be dropped too: persistent workers hold their own pickled copy
+            # of the dataset, so mutating it in the parent alone would not reach them.
+            dataset.imgs = regenerate()
+            loader_cache.clear()
+            print(f"[student] epoch {epoch + 1}: redrew {dataset.imgs.shape[0]:,} "
+                  f"synthetic images")
+
         student.train()
         loader = loader_for(epoch)
         epoch_loss = 0.0

@@ -1,0 +1,78 @@
+# ViT-8 -> ViT-4 (8 attention blocks -> 4, all other dimensions held fixed).
+#
+# Tuned for student accuracy rather than for protocol parity with the ResNet
+# reference. Every deviation is marked [TUNED] with its reason; remove them to
+# get back to the shared protocol. Several things change at once here, so if you
+# want to attribute a gain to one of them, revert the others first.
+name: vit8 -> vit4 (CIFAR-10)
+
+runtime:
+  # [TUNED] The ramp reaches 2048, which puts 67% of all optimizer steps in the
+  # first 25 epochs and leaves the last 50 epochs with 1% of them -- so the phase
+  # where the LR has decayed and the student should be refining barely trains.
+  # Capping at 256 gives 105k steps instead of 94k and moves 7.4% of them into
+  # those last 50 epochs. Raise it if you are GPU-bound rather than quality-bound.
+  max_batch: 256
+
+data:
+  dataset: cifar10
+  root: ./data                # must CONTAIN cifar-10-batches-py/
+  download: true
+  teacher_batch: 128          # pairs with the AdamW lr below
+  randaug: true               # teacher-only; the student sees noise, never CIFAR
+  # [TUNED] RandAugment at full strength assumes a long schedule. At 42 epochs
+  # it underfits instead of regularising, so the magnitude is reduced. If you
+  # raise teacher.epochs back to 200, put this back to 9.
+  randaug_num_ops: 2
+  randaug_magnitude: 5
+
+model:
+  teacher: vit8
+  student: vit4
+
+teacher:
+  # The student cannot beat the teacher, so teacher accuracy is the hard ceiling
+  # on everything below. 42 epochs from scratch is the binding constraint here --
+  # if the student disappoints, raise this before tuning anything else.
+  epochs: 42
+  optimizer: adamw            # SGD at 0.01 does not train a ViT from scratch
+  lr: 1.0e-3
+  weight_decay: 0.05
+  warmup_epochs: 5            # ViTs are unstable without warmup
+  label_smoothing: 0.1
+  clip_grad: 1.0
+  ckpt: checkpoints/vit8_cifar10_teacher.pt
+
+noise:
+  num_samples: 40000
+  # Off, so all four experiments distil from one fixed 40k set and stay strictly
+  # comparable. Setting this to 20 redraws the set every 20 epochs, giving the
+  # student ~10x the distinct inputs -- the cheapest diversity available in a
+  # data-free setting, and worth trying once the uniform baseline is recorded.
+  # It is still only augmented noise; it does not touch real data.
+  regenerate_every: 0
+
+augment:
+  use_geo: true
+  n_random_ops: 8             # your setting; the other configs use 4
+
+student:
+  epochs: 200
+  optimizer: adamw            # [TUNED] correct for a transformer student
+  lr: 1.0e-3
+  # [TUNED] 5e-4 is the SGD default and is far too small for AdamW on a ViT;
+  # 0.05 matches the teacher and is the standard pairing.
+  weight_decay: 0.05
+  # [TUNED] The shared "ramp_aligned" schedule restarts at full LR five times
+  # (epochs 50/75/100/125/150), which repeatedly undoes an AdamW student's
+  # convergence. A single cosine decay, with warmup, suits it better.
+  schedule: cosine
+  warmup_epochs: 5
+  # [TUNED] T=20 over 10 classes compresses the teacher's targets hard: the gap
+  # between its top-2 probabilities averages 0.019, against 0.188 at T=4. The
+  # T^2 factor keeps the gradient magnitude comparable and the argmax survives,
+  # so this is not the outright signal loss I claimed earlier -- but a 10x wider
+  # margin is easier to fit, and 3-6 is the usual range for 10-class KD.
+  temperature: 4.0
+  ckpt_best: checkpoints/vit4_cifar10_student_best.pt
+  ckpt_last: checkpoints/vit4_cifar10_student_last.pt

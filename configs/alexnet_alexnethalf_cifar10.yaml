@@ -1,0 +1,36 @@
+# AlexNet -> AlexNet-Half, the ZSKD supplementary Table 2 pair.
+# Protocol identical to the ResNet reference; only the models and dataset differ.
+name: alexnet -> alexnet-half (CIFAR-10)
+
+data:
+  dataset: cifar10
+  root: ./data                # must CONTAIN cifar-10-batches-py/
+  download: true
+  teacher_batch: 64
+
+model:
+  teacher: alexnet
+  student: alexnet_half
+
+teacher:
+  epochs: 100
+  optimizer: sgd
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 5.0e-4
+  ckpt: checkpoints/alexnet_cifar10_teacher.pt
+
+noise:
+  num_samples: 40000
+
+augment:
+  use_geo: true
+  n_random_ops: 4
+
+student:
+  epochs: 200
+  optimizer: sgd
+  lr: 0.01
+  temperature: 20.0
+  ckpt_best: checkpoints/alexnet_half_cifar10_student_best.pt
+  ckpt_last: checkpoints/alexnet_half_cifar10_student_last.pt

@@ -1,0 +1,36 @@
+# The reference experiment. Everything here is the shared protocol; the other
+# configs deviate from it only where noted, so results stay comparable.
+name: resnet34 -> resnet18 (CIFAR-100)
+
+data:
+  dataset: cifar100
+  root: ./data                # must CONTAIN cifar-100-python/
+  download: true
+  teacher_batch: 64
+
+model:
+  teacher: resnet34
+  student: resnet18
+
+teacher:
+  epochs: 100
+  optimizer: sgd
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 5.0e-4
+  ckpt: checkpoints/resnet34_cifar100_teacher.pt
+
+noise:
+  num_samples: 40000
+
+augment:
+  use_geo: true
+  n_random_ops: 4
+
+student:
+  epochs: 200
+  optimizer: sgd
+  lr: 0.01
+  temperature: 20.0
+  ckpt_best: checkpoints/resnet18_cifar100_student_best.pt
+  ckpt_last: checkpoints/resnet18_cifar100_student_last.pt

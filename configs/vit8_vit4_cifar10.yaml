@@ -1,0 +1,43 @@
+# ViT-8 -> ViT-4 (8 attention blocks -> 4, all other dimensions held fixed).
+#
+# The distillation half is the shared protocol, unchanged. The TEACHER block
+# deviates, and every deviation is required: a from-scratch ViT does not converge
+# under SGD at 0.01 with crop+flip. Those are the only differences from the
+# ResNet reference config.
+name: vit8 -> vit4 (CIFAR-10)
+
+data:
+  dataset: cifar10
+  root: ./data                # must CONTAIN cifar-10-batches-py/
+  download: true
+  teacher_batch: 128          # pairs with the AdamW lr below
+  randaug: true               # teacher-only; the student sees noise, never CIFAR
+
+model:
+  teacher: vit8
+  student: vit4
+
+teacher:
+  epochs: 200                 # a from-scratch ViT needs the longer run
+  optimizer: adamw            # SGD at 0.01 does not train this from scratch
+  lr: 1.0e-3
+  weight_decay: 0.05
+  warmup_epochs: 5            # ViTs are unstable without warmup
+  label_smoothing: 0.1
+  clip_grad: 1.0
+  ckpt: checkpoints/vit8_cifar10_teacher.pt
+
+noise:
+  num_samples: 40000
+
+augment:
+  use_geo: true
+  n_random_ops: 4
+
+student:
+  epochs: 200
+  optimizer: sgd              # shared protocol; set to adamw if the student stalls
+  lr: 0.01
+  temperature: 20.0
+  ckpt_best: checkpoints/vit4_cifar10_student_best.pt
+  ckpt_last: checkpoints/vit4_cifar10_student_last.pt

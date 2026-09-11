@@ -196,9 +196,16 @@ def train_student(teacher, student, dataset, data, cfg: StudentCfg, runtime: Run
                   regenerate=None, regenerate_every: int = 0):
     """Distil the frozen teacher into the student on synthetic noise.
 
-    The student never sees a real training image; the CIFAR loaders are used only
-    to score it. The best-scoring epoch is written to disk as it goes, so a long
-    run that drifts or is interrupted still leaves a usable student.
+    Data-flow invariants, enforced here and checked by tests/invariants_test.py:
+
+      * every student training batch comes from `dataset` (augmented synthetic
+        noise) and nothing else;
+      * the teacher is queried on exactly the tensor the student is trained on --
+        the same augmented view, not the un-augmented noise behind it;
+      * the only real data the student ever touches is the TEST set, for scoring.
+
+    The best-scoring epoch is written to disk as it goes, so a long run that
+    drifts or is interrupted still leaves a usable student.
     """
     device = runtime.device
     student = runtime.prepare(student.to(device))
@@ -253,26 +260,25 @@ def train_student(teacher, student, dataset, data, cfg: StudentCfg, runtime: Run
             epoch_loss += loss.item()
         sched.step()
 
+        # INVARIANT: the student is scored on the real TEST set and nothing else.
+        # It has no training set on real data -- its training distribution is the
+        # synthetic noise above -- so there is no train accuracy to report for it.
         test_acc = evaluate(student, device, data.test_loader)
-        show_train = cfg.eval_train_every and (epoch + 1) % cfg.eval_train_every == 0
-        train_acc = evaluate(student, device, data.train_eval_loader) if show_train else None
 
         if test_acc > best_acc:
             best_acc = test_acc
-            checkpoint.save(student, cfg.ckpt_best, val_acc=test_acc,
-                            train_acc=train_acc, epoch=epoch + 1,
-                            temperature=cfg.temperature)
+            checkpoint.save(student, cfg.ckpt_best, val_acc=test_acc, test_acc=test_acc,
+                            epoch=epoch + 1, temperature=cfg.temperature)
 
-        train_part = f"train={train_acc:.2f}%  " if train_acc is not None else ""
-        print(f"[student] epoch {epoch + 1}/{cfg.epochs}  {train_part}"
+        print(f"[student] epoch {epoch + 1}/{cfg.epochs}  "
               f"test={test_acc:.2f}%  best={best_acc:.2f}%  "
               f"loss={epoch_loss / len(loader):.4f}  "
               f"bs={batch_size_for(epoch, runtime.max_batch)}  "
               f"lr={sched.get_last_lr()[0]:.2e}  {_fmt(time.time() - started)}")
 
     final_acc = evaluate(student, device, data.test_loader)
-    checkpoint.save(student, cfg.ckpt_last, val_acc=final_acc, epoch=cfg.epochs,
-                    temperature=cfg.temperature)
+    checkpoint.save(student, cfg.ckpt_last, val_acc=final_acc, test_acc=final_acc,
+                    epoch=cfg.epochs, temperature=cfg.temperature)
     print(f"[student] done in {_fmt(time.time() - started)}. "
           f"best test={best_acc:.2f}% -> {cfg.ckpt_best}")
     print(f"[student] final epoch={final_acc:.2f}% -> {cfg.ckpt_last}")

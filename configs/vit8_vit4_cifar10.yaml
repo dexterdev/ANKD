@@ -45,11 +45,12 @@ teacher:
 
 noise:
   num_samples: 40000
-  # [TUNED] One fixed set of 40k images is seen 200 times over. Redrawing it
-  # every 20 epochs gives the student ~10x the distinct inputs for the same
-  # memory, which is the cheapest diversity available in a data-free setting.
-  # Costs a couple of minutes per redraw on CPU. Set to 0 for a fixed set.
-  regenerate_every: 20
+  # Off, so all four experiments distil from one fixed 40k set and stay strictly
+  # comparable. Setting this to 20 redraws the set every 20 epochs, giving the
+  # student ~10x the distinct inputs -- the cheapest diversity available in a
+  # data-free setting, and worth trying once the uniform baseline is recorded.
+  # It is still only augmented noise; it does not touch real data.
+  regenerate_every: 0
 
 augment:
   use_geo: true

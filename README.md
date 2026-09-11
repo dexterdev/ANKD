@@ -94,6 +94,21 @@ epochs. The distillation half is untouched, so the four experiments stay compara
 size, width, heads and MLP ratio held fixed, so the student is the teacher with half
 the blocks.
 
+## Data-flow invariants
+
+The point of the method is that the student never learns from real data, so the
+boundary is enforced in `engine.py` and checked at runtime by
+`tests/invariants_test.py`, which stamps every synthetic image after augmentation
+and uses forward hooks to see what each network is actually fed:
+
+* **Teacher** — trains on the real training set; scored on real train and test data.
+* **Student** — trains *only* on augmented synthetic noise, and is scored *only* on
+  the real test set. It has no train accuracy, because it has no training set on real
+  data.
+* The teacher is queried on **exactly** the tensor the student is trained on — the
+  same augmented view, not the un-augmented noise behind it (the test asserts object
+  identity, not just equality).
+
 ## Checkpoints
 
 Teacher and student both write the best-scoring epoch as training proceeds; the student
@@ -132,7 +147,8 @@ notebooks/       the original notebooks this package replaces
 ## Tests
 
 ```bash
-python tests/smoke_test.py
+python tests/smoke_test.py       # all four configs, both stages, end to end
+python tests/invariants_test.py  # the data-flow boundary above
 ```
 
 Runs every config through both stages against a stub CIFAR, checks parameter counts,

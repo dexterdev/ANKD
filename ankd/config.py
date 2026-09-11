@@ -85,7 +85,8 @@ class StudentCfg:
     schedule: str = "ramp_aligned"  # "ramp_aligned" (shared protocol) | "cosine"
     ckpt_best: str = "checkpoints/student_best.pt"
     ckpt_last: str = "checkpoints/student_last.pt"
-    eval_train_every: int = 1
+    # No eval_train_every here on purpose: the student trains on synthetic noise,
+    # so it has no training set on real data and is scored on the test set only.
 
 
 @dataclass
